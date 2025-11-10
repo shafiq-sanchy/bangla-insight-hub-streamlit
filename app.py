@@ -4,6 +4,7 @@ import os
 from dotenv import load_dotenv
 import tempfile
 import time
+import base64
 
 # Load environment variables
 load_dotenv()
@@ -99,7 +100,7 @@ st.header("📹 Video Upload and Analysis")
 uploaded_file = st.file_uploader(
     "Choose a video file...", 
     type=["mp4", "mov", "avi", "mkv", "webm"],
-    help="Upload a video file to analyze. Maximum recommended size: 100MB"
+    help="Upload a video file to analyze. Maximum recommended size: 20MB"
 )
 
 if uploaded_file is not None:
@@ -115,51 +116,44 @@ if uploaded_file is not None:
         st.write(f"- **{key}**: {value}")
     
     # Check file size
-    if uploaded_file.size > 100 * 1024 * 1024:  # 100MB limit
-        st.error("File is too large. Please upload a video smaller than 100MB.")
+    if uploaded_file.size > 20 * 1024 * 1024:  # 20MB limit
+        st.error("File is too large. Please upload a video smaller than 20MB.")
         st.stop()
     
     # Process button
     if st.button("🔍 Process Video", type="primary"):
         with st.spinner("Processing video... This may take a few minutes."):
             try:
-                # Save uploaded file temporarily
-                with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as tmp_file:
-                    tmp_file.write(uploaded_file.getvalue())
-                    tmp_file_path = tmp_file.name
+                # Read and encode the video file
+                video_bytes = uploaded_file.read()
+                base64_video = base64.b64encode(video_bytes).decode('utf-8')
                 
                 # Initialize the model
-                model = genai.GenerativeModel('gemini-1.5-flash')
+                model = genai.GenerativeModel('gemini-pro-vision')
                 
-                # Upload the file to Gemini
-                st.write("Uploading video to Gemini...")
-                gemini_file = genai.upload_file(tmp_file_path)
-                
-                # Wait for processing to complete
-                st.write("Processing video...")
-                while gemini_file.state.name == "PROCESSING":
-                    time.sleep(2)
-                    gemini_file = genai.get_file(gemini_file.name)
-                
-                if gemini_file.state.name == "FAILED":
-                    raise ValueError("Video processing failed")
-                
-                # Prompt in Bangla
+                # Prepare the prompt
                 prompt = "এই ভিডিওটি বিশ্লেষণ করুন এবং বাংলায় বিস্তারিত অন্তর্দৃষ্টি প্রদান করুন। ভিডিওর মূল বিষয়বস্তু, গুরুত্বপূর্ণ পয়েন্ট, এবং সম্ভাব্য সুপারিশগুলি অন্তর্ভুক্ত করুন।"
+                
+                # Create the parts for the content
+                parts = [
+                    {"text": prompt},
+                    {
+                        "inline_data": {
+                            "mime_type": uploaded_file.type,
+                            "data": base64_video
+                        }
+                    }
+                ]
                 
                 # Generate content
                 st.write("Generating insights...")
-                response = model.generate_content([prompt, gemini_file])
+                response = model.generate_content(parts)
                 
                 # Display the result
                 st.markdown('<div class="result-container">', unsafe_allow_html=True)
                 st.markdown("### 🎯 Analysis Results:")
                 st.write(response.text)
                 st.markdown('</div>', unsafe_allow_html=True)
-                
-                # Clean up
-                os.unlink(tmp_file_path)
-                genai.delete_file(gemini_file.name)
                 
             except Exception as e:
                 st.markdown(f'<div class="error-container">Error: {str(e)}</div>', unsafe_allow_html=True)
